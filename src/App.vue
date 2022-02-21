@@ -1,11 +1,11 @@
 <template>
   <div class="container mx-auto flex flex-col items-center bg-gray-100 p-4">
-    <!--    <div class="fixed w-100 h-100 opacity-80 bg-purple-800 inset-0 z-50 flex items-center justify-center">-->
-    <!--      <svg class="animate-spin -ml-1 mr-3 h-12 w-12 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">-->
-    <!--        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>-->
-    <!--        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>-->
-    <!--      </svg>-->
-    <!--    </div>-->
+    <!--        <div class="fixed w-100 h-100 opacity-80 bg-purple-800 inset-0 z-50 flex items-center justify-center">-->
+    <!--          <svg class="animate-spin -ml-1 mr-3 h-12 w-12 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">-->
+    <!--            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>-->
+    <!--            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>-->
+    <!--          </svg>-->
+    <!--        </div>-->
     <div class="container">
       <section>
         <div class="flex">
@@ -68,9 +68,30 @@
 
       <template v-if="tickers.length">
         <hr class="w-full border-t border-gray-600 my-4"/>
+        <div>
+          <button
+              v-if="page > 1"
+              @click="page = page - 1"
+              class="my-4 mx-2 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">
+            Назад
+          </button>
+          <button
+              @click="page = page + 1"
+              v-if="hasNextPage"
+              class="my-4 mx-2 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">
+            Вперёд
+          </button>
+          <div> Фильтр:<input v-model="filter"></div>
+        </div>
+        <hr class="w-full border-t border-gray-600 my-4"/>
         <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
           <div
-              v-for="t in tickers" :key="t.name"
+              v-for="t in filteredTickers()"
+              :key="t.name"
+              @click="select(t)"
+              :class="{
+              'border-4': sel === t
+            }"
               class="bg-white overflow-hidden shadow rounded-lg border-purple-800 border-solid cursor-pointer"
           >
             <div class="px-4 py-5 sm:p-6 text-center">
@@ -83,7 +104,7 @@
             </div>
             <div class="w-full border-t border-gray-200"></div>
             <button
-                @click="handleDelete(t)"
+                @click.stop="handleDelete(t)"
                 class="flex items-center justify-center font-medium w-full bg-gray-100 px-4 py-4 sm:px-6 text-md text-gray-500 hover:text-gray-600 hover:bg-gray-200 hover:opacity-20 transition-all focus:outline-none"
             >
               <svg
@@ -112,18 +133,13 @@
         </h3>
         <div class="flex items-end border-gray-600 border-b border-l h-64">
           <div
-              class="bg-purple-800 border w-10 h-24"
-          ></div>
-          <div
-              class="bg-purple-800 border w-10 h-32"
-          ></div>
-          <div
-              class="bg-purple-800 border w-10 h-48"
-          ></div>
-          <div
-              class="bg-purple-800 border w-10 h-16"
+              v-for="(bar, idx) in normalizeGraph()"
+              :key="idx"
+              :style="{ height: `${bar}%` }"
+              class="bg-purple-800 border w-10"
           ></div>
         </div>
+
         <button
             type="button"
             class="absolute top-0 right-0"
@@ -159,36 +175,118 @@ export default {
   name: 'App',
   data() {
     return {
-      ticker: 'default',
-      tickers: [
-        {
-          name: 'DEMO1',
-          price: '__'
-        },
-        {
-          name: 'DEMO2',
-          price: '__'
-        },
-        {
-          name: 'DEMO3',
-          price: '__'
-        },
-      ]
+      ticker: "",
+      tickers: [],
+      sel: null,
+      graph: [],
+      page: 1,
+      filter: "",
+      hasNextPage: true
+    }
+  },
+  created() {
+    const windowData = Object.fromEntries(
+        new URL(window.location).searchParams.entries()
+    );
+
+    if (windowData.filter) {
+      this.filter = windowData.filter;
+    }
+
+    if (windowData.page) {
+      this.page = windowData.page;
+    }
+
+    const tickersData = localStorage.getItem('cryptonomicon-list');
+
+    if (tickersData) {
+      this.tickers = JSON.parse(tickersData);
+      this.tickers.forEach(ticker => {
+        this.subscribeToUpdates(ticker.name);
+      });
     }
   },
   methods: {
+    filteredTickers() {
+      const start = (this.page - 1) * 6;
+      const end = this.page * 6;
+
+      const filteredTickers = this.tickers.filter(ticker =>
+          ticker.name.includes(this.filter)
+      );
+
+      this.hasNextPage = filteredTickers.length > end;
+
+      return filteredTickers.slice(start, end);
+    },
+
+    subscribeToUpdates(tickerName) {
+      setInterval(async () => {
+        const f = await fetch(
+            `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=USD&api_key=69c9d759513682ffb7546153a1f2a23857ee7e86b2089fc71acd4d109ced2fc3`
+        );
+
+        const data = await f.json();
+
+        // currentTicker.price =  data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
+        this.tickers.find(t => t.name === tickerName).price =
+            data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
+
+        if (this.sel?.name === tickerName) {
+          this.graph.push(data.USD);
+        }
+      }, 5000);
+    },
     add() {
-      const newTicker = {
+      const currentTicker = {
         name: this.ticker,
         price: '__'
       };
 
-      this.tickers.push(newTicker);
+      this.newTicker = currentTicker;
+
+      this.tickers.push(currentTicker);
       this.ticker = '';
+      this.filter = '';
+
+      localStorage.setItem('cryptonomicon-list', JSON.stringify(this.tickers))
+      this.subscribeToUpdates(currentTicker.name);
     },
 
     handleDelete(tickerToRemove) {
       this.tickers = this.tickers.filter(t => t !== tickerToRemove);
+    },
+
+    select(ticker) {
+      this.sel = ticker;
+      this.graph = [];
+    },
+
+    normalizeGraph() {
+      const maxValue = Math.max(...this.graph);
+      const minValue = Math.min(...this.graph);
+      return this.graph.map(
+          price => 5 + ((price - minValue) * 95) / (maxValue - minValue)
+      );
+    }
+  },
+  watch: {
+    filter() {
+      this.page = 1;
+
+      window.history.pushState(
+          null,
+          document.title,
+          `${window.location.pathname}?filter=${this.filter}&page=${this.page}`
+      );
+    },
+
+    page() {
+      window.history.pushState(
+          null,
+          document.title,
+          `${window.location.pathname}?filter=${this.filter}&page=${this.page}`
+      );
     }
   }
 }
