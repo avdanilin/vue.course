@@ -154,6 +154,7 @@
 </template>
 
 <script>
+
 export default {
   name: 'App',
   data() {
@@ -193,4 +194,3 @@ export default {
 }
 
 </script>
-<style src="./app.css"></style>
