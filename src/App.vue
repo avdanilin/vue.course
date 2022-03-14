@@ -16,6 +16,7 @@
               <input
                   v-model="ticker"
                   v-on:keydown.enter="add"
+                  v-on:keyup="change"
                   type="text"
                   name="wallet"
                   id="wallet"
@@ -41,7 +42,7 @@
               CHD
             </span>
             </div>
-            <div class="text-sm text-red-600">Такой тикер уже добавлен</div>
+            <div v-show="existTicker" class="text-sm text-red-600">Такой тикер уже добавлен</div>
           </div>
         </div>
         <button
@@ -175,12 +176,13 @@ export default {
   name: 'App',
   data() {
     return {
-      ticker: "",
+      ticker: '',
+      existTicker: false,
       tickers: [],
       sel: null,
       graph: [],
       page: 1,
-      filter: "",
+      filter: '',
       hasNextPage: true
     }
   },
@@ -221,6 +223,8 @@ export default {
     },
 
     subscribeToUpdates(tickerName) {
+      if (this.tickers.length < 1) return;
+
       setInterval(async () => {
         const f = await fetch(
             `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=USD&api_key=69c9d759513682ffb7546153a1f2a23857ee7e86b2089fc71acd4d109ced2fc3`
@@ -237,19 +241,50 @@ export default {
         }
       }, 5000);
     },
+    async change() {
+      // let that = this;
+      // let filterSymbol = [];
+
+      const f = await fetch(
+          `https://min-api.cryptocompare.com/data/all/coinlist?summary=true`
+      );
+
+      const data = await f.json();
+
+      // for (const dataKey in data.Data) {
+      for (const datum in data.Data) {
+
+        // if (dataKey.includes(that.ticker)) {
+        // if (dataKey.indexOf(that.ticker) > -1) {
+        // if (dataKey.includes(that.ticker)) {
+        //   filterSymbol.push(dataKey)
+        // }
+        console.log(data.Data[datum].Symbol)
+      }
+
+      // console.log(filterSymbol.slice(0, 4))
+
+
+      // console.log(filterSymbol)
+    },
     add() {
       const currentTicker = {
         name: this.ticker,
         price: '__'
       };
 
-      this.newTicker = currentTicker;
+      if (this.tickers.find(t => t.name === this.ticker)) {
+        this.existTicker = true;
+      } else {
+        this.newTicker = currentTicker;
 
-      this.tickers.push(currentTicker);
-      this.ticker = '';
-      this.filter = '';
+        this.tickers.push(currentTicker);
+        this.ticker = '';
+        this.filter = '';
 
-      localStorage.setItem('cryptonomicon-list', JSON.stringify(this.tickers))
+        localStorage.setItem('cryptonomicon-list', JSON.stringify(this.tickers))
+      }
+
       this.subscribeToUpdates(currentTicker.name);
     },
 
