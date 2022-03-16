@@ -13,10 +13,11 @@
             <label for="wallet" class="block text-sm font-medium text-gray-700"
             >Тикер</label>
             <div class="mt-1 relative rounded-md shadow-md">
+              <!--              v-on:keyup="change;"-->
               <input
                   v-model="ticker"
-                  v-on:keydown.enter="add"
-                  v-on:keyup="change"
+                  v-on:keydown.enter="add();"
+                  @input="exitsTicker(); change();"
                   type="text"
                   name="wallet"
                   id="wallet"
@@ -24,29 +25,17 @@
                   placeholder="Например DOGE"
               />
             </div>
-            <div class="flex bg-white shadow-md p-1 rounded-md shadow-md flex-wrap">
-            <span
-                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer">
-              BTC
-            </span>
-              <span
-                  class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer">
-              DOGE
-            </span>
-              <span
-                  class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer">
-              BCH
-            </span>
-              <span
-                  class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer">
-              CHD
-            </span>
+            <div v-if="tooltipTokens.length" class="flex bg-white shadow-md p-1 rounded-md shadow-md flex-wrap">
+              <span v-for="(tooltip, ix) in tooltipTokens" :key="ix"
+                    class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer">
+                {{ tooltip }}
+              </span>
             </div>
             <div v-show="existTicker" class="text-sm text-red-600">Такой тикер уже добавлен</div>
           </div>
         </div>
         <button
-            @click="add"
+            @click="add();"
             type="button"
             class="my-4 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
         >
@@ -171,14 +160,18 @@
 </template>
 
 <script>
+let controller = new AbortController();
+let signal = controller.signal;
 
 export default {
   name: 'App',
   data() {
     return {
       ticker: '',
+      getTokenList: false,
       existTicker: false,
       tickers: [],
+      tooltipTokens: [],
       sel: null,
       graph: [],
       page: 1,
@@ -224,68 +217,119 @@ export default {
 
     subscribeToUpdates(tickerName) {
       if (this.tickers.length < 1) return;
+      try {
+        setInterval(async () => {
+          const f = await fetch(
+              `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=USD&api_key=69c9d759513682ffb7546153a1f2a23857ee7e86b2089fc71acd4d109ced2fc3`,
+              {signal}
+          );
 
-      setInterval(async () => {
-        const f = await fetch(
-            `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=USD&api_key=69c9d759513682ffb7546153a1f2a23857ee7e86b2089fc71acd4d109ced2fc3`
-        );
+          const data = await f.json();
 
-        const data = await f.json();
+          if (data.USD) {
 
-        // currentTicker.price =  data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
-        this.tickers.find(t => t.name === tickerName).price =
-            data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
+            this.tickers.find(t => t.name === tickerName).price =
+                data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
 
-        if (this.sel?.name === tickerName) {
-          this.graph.push(data.USD);
+            if (this.sel?.name === tickerName) {
+              this.graph.push(data.USD);
+            }
+          }
+        }, 5000);
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          console.log('Нет ответа от сервера.');
+        } else {
+          throw error;
         }
-      }, 5000);
+      }
     },
     async change() {
       // let that = this;
-      // let filterSymbol = [];
+      this.getTokenList = true;
 
-      const f = await fetch(
-          `https://min-api.cryptocompare.com/data/all/coinlist?summary=true`
-      );
+      let {result} = await this.existToken();
 
-      const data = await f.json();
+      if (result) {
+        console.log(result);
+      }
+
+      // console.log(this.tooltipTokens)
 
       // for (const dataKey in data.Data) {
-      for (const datum in data.Data) {
+      // for (const datum in data.Data) {
 
-        // if (dataKey.includes(that.ticker)) {
-        // if (dataKey.indexOf(that.ticker) > -1) {
-        // if (dataKey.includes(that.ticker)) {
-        //   filterSymbol.push(dataKey)
-        // }
-        console.log(data.Data[datum].Symbol)
-      }
+      // if (dataKey.includes(that.ticker)) {
+      // if (dataKey.indexOf(that.ticker) > -1) {
+      // if (dataKey.includes(that.ticker)) {
+      //   filterSymbol.push(dataKey)
+      // }
+      // console.log(data.Data[datum].Symbol)
+      // }
 
       // console.log(filterSymbol.slice(0, 4))
 
 
       // console.log(filterSymbol)
     },
-    add() {
+    exitsTicker() {
+      this.existTicker = !!this.tickers.find(t => t.name === this.ticker);
+    },
+    async existToken() {
       const currentTicker = {
         name: this.ticker,
         price: '__'
       };
 
-      if (this.tickers.find(t => t.name === this.ticker)) {
-        this.existTicker = true;
+      let f = undefined;
+
+      if (this.getTokenList) {
+        f = await fetch(`https://min-api.cryptocompare.com/data/all/coinlist`,
+            {signal}
+        );
       } else {
-        this.newTicker = currentTicker;
-
-        this.tickers.push(currentTicker);
-        this.ticker = '';
-        this.filter = '';
-
-        localStorage.setItem('cryptonomicon-list', JSON.stringify(this.tickers))
+        f = await fetch(`https://min-api.cryptocompare.com/data/all/coinlist?summary=true&fsym=${currentTicker.name}`,
+            {signal}
+        );
       }
 
-      this.subscribeToUpdates(currentTicker.name);
+      console.log(this.getTokenList, f)
+
+      let data = await f.json();
+
+      console.log(data)
+
+      // let result = Object.keys(data.Data).length ? data : false;
+      //
+      // return {
+      //   result,
+      //   currentTicker
+      // };
+    },
+    async add() {
+      const that = this;
+
+      try {
+        let {result, currentTicker} = await that.existToken();
+
+        // TODO: добавлять первый из совпадающего списка
+        if (!that.existTicker && result) {
+          that.newTicker = currentTicker;
+
+          that.tickers.push(currentTicker);
+          that.ticker = '';
+          that.filter = '';
+
+          localStorage.setItem('cryptonomicon-list', JSON.stringify(that.tickers))
+          that.subscribeToUpdates(currentTicker.name);
+        }
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          console.log('Нет ответа от сервера.');
+        } else {
+          throw error;
+        }
+      }
     },
 
     handleDelete(tickerToRemove) {
